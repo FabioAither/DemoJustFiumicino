@@ -35,10 +35,9 @@ def load_all_data():
             df_l['Lon'] = pd.to_numeric(df_l['Lon'].astype(str).str.replace(',', '.'), errors='coerce')
         return df_l, df_f, df_c
     except Exception as e:
-        st.error(f"Errore nel caricamento dati: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# --- LOGICA APPLICATIVA ---
+# --- CARICAMENTO DATI ---
 df_luoghi, df_feedback, df_config = load_all_data()
 
 # --- SIDEBAR (FILTRI E PERCORSO) ---
@@ -61,7 +60,7 @@ with st.sidebar:
         pb = st.selectbox("Punto B (Arrivo):", nomi, key="pb")
         ra = df_luoghi[df_luoghi['Nome Zona']==pa].iloc[0]
         rb = df_luoghi[df_luoghi['Nome Zona']==pb].iloc[0]
-        # PERCORSO: Driving + Roadmap
+        # PERCORSO IN AUTO + ROADMAP
         url_p = f"https://www.google.com/maps/dir/?api=1&origin={ra['Lat']},{ra['Lon']}&destination={rb['Lat']},{rb['Lon']}&travelmode=driving&basemap=roadmap"
         st.link_button("🚗 Calcola Percorso in Auto", url_p, use_container_width=True)
 
@@ -78,10 +77,9 @@ with tab1:
     if df_map.empty:
         st.info("Nessun dato da visualizzare. Aggiungi luoghi o cambia filtri.")
     else:
-        # Mappa centrata
         m = folium.Map(location=[df_map['Lat'].mean(), df_map['Lon'].mean()], zoom_start=13)
         for _, r in df_map.iterrows():
-            # NAVIGATORE: Roadmap + Nuovo testo
+            # NAVIGATORE ROADMAP + TASTO BLU
             nav = f"https://www.google.com/maps/search/?api=1&query={r['Lat']},{r['Lon']}&basemap=roadmap"
             html = f"""
             <div style='font-family: sans-serif; min-width: 150px;'>
@@ -122,11 +120,66 @@ with tab2:
             
             tipi = sorted(df_config['Tipo_Luogo'].tolist()) if not df_config.empty else []
             tipo_n = st.selectbox("Tipo", tipi + ["Altro..."])
-            if tipo_n == "Altro...": tipo_n = st.text_input("Specifica tipo")
+            if tipo_n == "Altro...":
+                tipo_n = st.text_input("Specifica nuovo tipo")
             
             targ_n = st.text_input("Target")
             ora_n = st.text_input("Orari")
             note_n = st.text_area("Note")
             
             if st.form_submit_button("Salva nel Database"):
-                if nome_n and lat_n
+                if nome_n and lat_n and lon_n:
+                    ws_l = get_worksheet("Luoghi")
+                    ws_l.append_row([len(df_luoghi)+1, nome_n, lat_n, lon_n, tipo_n, targ_n, ora_n, note_n])
+                    if tipo_n not in tipi:
+                        get_worksheet("Config").append_row([tipo_n])
+                    st.success("Zona salvata!")
+                    st.cache_data.clear()
+
+    with sub_edit:
+        if not df_luoghi.empty:
+            nome_mod = st.selectbox("Scegli luogo da modificare", df_luoghi['Nome Zona'].tolist())
+            r_idx = df_luoghi[df_luoghi['Nome Zona'] == nome_mod].index[0]
+            r_data = df_luoghi.iloc[r_idx]
+            with st.form("form_edit"):
+                en = st.text_input("Nome", value=r_data['Nome Zona'])
+                ela = st.text_input("Lat", value=str(r_data['Lat']))
+                elo = st.text_input("Lon", value=str(r_data['Lon']))
+                etarg = st.text_input("Target", value=r_data['Target di Riferimento'])
+                enote = st.text_area("Note", value=r_data['Note'])
+                if st.form_submit_button("Salva Modifiche"):
+                    ws_l = get_worksheet("Luoghi")
+                    row_num = int(r_idx) + 2
+                    ws_l.update(range_name=f'B{row_num}:H{row_num}', values=[[en, ela, elo, r_data['Tipo di Zona'], etarg, r_data['Orari di Affluenza'], enote]])
+                    st.success("Dati aggiornati!")
+                    st.cache_data.clear()
+
+    with sub_del:
+        if not df_luoghi.empty:
+            nome_del = st.selectbox("Scegli luogo da eliminare", df_luoghi['Nome Zona'].tolist(), key="del_sel")
+            if st.button("ELIMINA DEFINITIVAMENTE"):
+                ws_l = get_worksheet("Luoghi")
+                ws_l.delete_rows(ws_l.find(nome_del).row)
+                st.error("Rimosso.")
+                st.cache_data.clear()
+
+# --- TAB 3: FEEDBACK ---
+with tab3:
+    st.subheader("📝 Diario Feedback")
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        if not df_luoghi.empty:
+            with st.form("form_feed"):
+                z_f = st.selectbox("Zona", sorted(df_luoghi['Nome Zona'].unique()))
+                tl_f = st.text_input("Team Leader")
+                comm_f = st.text_area("Commento")
+                v_f = st.select_slider("Valutazione", options=[1, 2, 3, 4, 5])
+                if st.form_submit_button("Invia Feedback"):
+                    get_worksheet("Feedback").append_row([len(df_feedback)+1, z_f, datetime.now().strftime("%Y-%m-%d %H:%M"), tl_f, comm_f, v_f])
+                    st.success("Feedback salvato!")
+                    st.cache_data.clear()
+    with c2:
+        if not df_feedback.empty:
+            df_fv = df_feedback.copy().sort_values(by='Data_Ora', ascending=False)
+            df_fv['Valutazione'] = df_fv['Valutazione'].apply(lambda x: "⭐" * int(x))
+            st.dataframe(df_fv[['Data_Ora', 'ID_Luogo', 'Nome_TL', 'Commento', 'Valutazione']], use_container_width=True, hide_index=True)
