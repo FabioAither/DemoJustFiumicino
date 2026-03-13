@@ -50,15 +50,16 @@ try:
         t_sel = st.multiselect("Seleziona Target", t_options)
         
         st.divider()
-        st.subheader("📏 Calcola Percorso")
+        st.subheader("🚗 Calcola Percorso")
         if not df_luoghi.empty:
             nomi = sorted(df_luoghi['Nome Zona'].unique())
             pa = st.selectbox("Punto A (Partenza):", nomi, key="pa")
             pb = st.selectbox("Punto B (Arrivo):", nomi, key="pb")
             ra = df_luoghi[df_luoghi['Nome Zona']==pa].iloc[0]
             rb = df_luoghi[df_luoghi['Nome Zona']==pb].iloc[0]
-            url_p = f"https://www.google.com/maps/dir/?api=1&origin={ra['Lat']},{ra['Lon']}&destination={rb['Lat']},{rb['Lon']}&travelmode=walking"
-            st.link_button("🚶 Apri percorso a piedi", url_p, use_container_width=True)
+            # MODIFICA: travelmode=driving e basemap=roadmap
+            url_p = f"https://www.google.com/maps/dir/?api=1&origin={ra['Lat']},{ra['Lon']}&destination={rb['Lat']},{rb['Lon']}&travelmode=driving&basemap=roadmap"
+            st.link_button("🚗 Percorso in Auto", url_p, use_container_width=True)
 
     # --- CORPO PRINCIPALE ---
     st.title("🎯 Just Fiumicino: Gestione Volantinaggio")
@@ -73,12 +74,18 @@ try:
         if df_map.empty:
             st.info("Nessun dato da visualizzare. Aggiungi luoghi o cambia filtri.")
         else:
-            # Mappa a tutta larghezza
             m = folium.Map(location=[df_map['Lat'].mean(), df_map['Lon'].mean()], zoom_start=13)
             for _, r in df_map.iterrows():
-                nav = f"https://www.google.com/maps/search/?api=1&query={r['Lat']},{r['Lon']}"
-                html = f"<b>{r['Nome Zona']}</b><br>Target: {r['Target di Riferimento']}<br><a href='{nav}' target='_blank'>🚀 Navigatore</a>"
-                folium.Marker([r['Lat'], r['Lon']], popup=folium.Popup(html, max_width=200)).add_to(m)
+                # MODIFICA: basemap=roadmap e nuovo testo popup
+                nav = f"https://www.google.com/maps/search/?api=1&query={r['Lat']},{r['Lon']}&basemap=roadmap"
+                html = f"""
+                <div style='font-family: sans-serif; min-width: 150px;'>
+                    <b>{r['Nome Zona']}</b><br>
+                    <p style='font-size: 12px; margin: 5px 0;'>Target: {r['Target di Riferimento']}</p>
+                    <a href='{nav}' target='_blank' style='display: block; text-align: center; background: #4285F4; color: white; padding: 8px; border-radius: 5px; text-decoration: none;'>📍Apri in Mappe</a>
+                </div>
+                """
+                folium.Marker([r['Lat'], r['Lon']], popup=folium.Popup(html, max_width=250)).add_to(m)
             st_folium(m, width="100%", height=500, returned_objects=[])
             
             st.divider()
@@ -92,13 +99,11 @@ try:
 
         with sub_add:
             st.write("### 1. Clicca sulla mappa per ottenere le coordinate")
-            # Mappa per selezione coordinate
             m_picker = folium.Map(location=[41.7733, 12.2311], zoom_start=13)
-            folium.LatLngPopup().add_to(m_picker) # Mostra le coordinate al click
+            folium.LatLngPopup().add_to(m_picker) 
             last_click = st_folium(m_picker, width=700, height=400, key="picker_map")
             
-            clicked_lat = ""
-            clicked_lon = ""
+            clicked_lat, clicked_lon = "", ""
             if last_click and last_click.get("last_clicked"):
                 clicked_lat = last_click["last_clicked"]["lat"]
                 clicked_lon = last_click["last_clicked"]["lng"]
@@ -108,7 +113,6 @@ try:
             with st.form("form_aggiunta"):
                 nome_n = st.text_input("Nome Zona")
                 col1, col2 = st.columns(2)
-                # I campi lat/lon vengono pre-compilati se l'utente clicca sulla mappa
                 lat_n = col1.text_input("Latitudine", value=str(clicked_lat))
                 lon_n = col2.text_input("Longitudine", value=str(clicked_lon))
                 
@@ -123,56 +127,3 @@ try:
                 if st.form_submit_button("Salva nel Database"):
                     ws_l = get_worksheet("Luoghi")
                     ws_l.append_row([len(df_luoghi)+1, nome_n, lat_n, lon_n, tipo_n, targ_n, ora_n, note_n])
-                    if tipo_n not in tipi: get_worksheet("Config").append_row([tipo_n])
-                    st.success("Zona salvata con successo!")
-                    st.cache_data.clear()
-
-        with sub_edit:
-            if not df_luoghi.empty:
-                nome_mod = st.selectbox("Scegli luogo da modificare", df_luoghi['Nome Zona'].tolist())
-                r_idx = df_luoghi[df_luoghi['Nome Zona'] == nome_mod].index[0]
-                r_data = df_luoghi.iloc[r_idx]
-                with st.form("form_edit"):
-                    en = st.text_input("Nome", value=r_data['Nome Zona'])
-                    c1, c2 = st.columns(2)
-                    ela = c1.text_input("Lat", value=str(r_data['Lat']))
-                    elo = c2.text_input("Lon", value=str(r_data['Lon']))
-                    etarg = st.text_input("Target", value=r_data['Target di Riferimento'])
-                    enote = st.text_area("Note", value=r_data['Note'])
-                    if st.form_submit_button("Salva Modifiche"):
-                        ws_l = get_worksheet("Luoghi")
-                        row_n = int(r_idx) + 2
-                        ws_l.update(range_name=f'B{row_n}:H{row_n}', values=[[en, ela, elo, r_data['Tipo di Zona'], etarg, r_data['Orari di Affluenza'], enote]])
-                        st.success("Dati aggiornati!")
-                        st.cache_data.clear()
-
-        with sub_del:
-            nome_del = st.selectbox("Scegli luogo da eliminare", df_luoghi['Nome Zona'].tolist(), key="del_sel")
-            if st.button("ELIMINA DEFINITIVAMENTE"):
-                ws_l = get_worksheet("Luoghi")
-                ws_l.delete_rows(ws_l.find(nome_del).row)
-                st.error(f"'{nome_del}' rimosso.")
-                st.cache_data.clear()
-
-    # --- TAB 3: FEEDBACK ---
-    with tab3:
-        st.subheader("📝 Diario Feedback")
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            with st.form("form_feed"):
-                z_f = st.selectbox("Zona", sorted(df_luoghi['Nome Zona'].unique()))
-                tl_f = st.text_input("Team Leader")
-                comm_f = st.text_area("Commento")
-                v_f = st.select_slider("Valutazione", options=[1, 2, 3, 4, 5])
-                if st.form_submit_button("Invia Feedback"):
-                    get_worksheet("Feedback").append_row([len(df_feedback)+1, z_f, datetime.now().strftime("%Y-%m-%d %H:%M"), tl_f, comm_f, v_f])
-                    st.success("Feedback salvato!")
-                    st.cache_data.clear()
-        with c2:
-            if not df_feedback.empty:
-                df_fv = df_feedback.copy().sort_values(by='Data_Ora', ascending=False)
-                df_fv['Valutazione'] = df_fv['Valutazione'].apply(lambda x: "⭐" * int(x))
-                st.dataframe(df_fv[['Data_Ora', 'ID_Luogo', 'Nome_TL', 'Commento', 'Valutazione']], use_container_width=True, hide_index=True)
-
-except Exception as e:
-    st.error(f"Errore: {e}")
