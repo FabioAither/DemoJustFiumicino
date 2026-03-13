@@ -41,7 +41,9 @@ with tab1:
     
     with col2:
         st.subheader("Filtri Strategici")
-        target_filter = st.multiselect("Target di riferimento", df_luoghi['Target di Riferimento'].unique())
+        # Cerca la colonna anche se scritta diversamente
+col_target = [c for c in df_luoghi.columns if c.lower() == 'target di riferimento'][0]
+target_filter = st.multiselect("Target di riferimento", df_luoghi[col_target].unique())
         
         df_map = df_luoghi.copy()
         if target_filter:
